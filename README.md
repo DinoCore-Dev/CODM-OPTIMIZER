@@ -294,6 +294,10 @@ npm install jsdom && node tools/uitest.js   # 43 headless WebUI checks (optional
 ./build.sh --fast   # package only
 ```
 
+The zip is **reproducible**: every entry gets a fixed timestamp, so building
+the same commit twice gives the same `sha256`. That makes the checksum in
+`dist/*.sha256` and in the release worth checking.
+
 The Web UI renders without a phone: serve the folder and open it with `?demo=1`,
 which fills every panel with sample data (the banner says so, and nothing is
 applied):

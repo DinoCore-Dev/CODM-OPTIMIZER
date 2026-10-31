@@ -55,7 +55,12 @@ chmod 0755 "$tmp/META-INF/com/google/android/update-binary"
 chmod 0755 "$tmp/system/bin/codm-optimizer"
 find "$tmp" -type f ! -perm -u+x -exec chmod 0644 {} +
 
-(cd "$tmp" && zip -r -X -q "$DIST_DIR/$name" . -x '.*')
+# Reproducible output: normalise every timestamp (sed -i above already
+# rewrote some) so the same sources always produce the same sha256 — which is
+# what makes the published checksum worth checking. Fixed epoch, UTC.
+find "$tmp" -exec env TZ=UTC touch -t 202601010000 {} +
+
+(cd "$tmp" && TZ=UTC zip -r -X -q "$DIST_DIR/$name" . -x '.*')
 
 cat >"$DIST_DIR/$name.sha256" <<EOF
 $(cd "$DIST_DIR" && sha256sum "$name" | cut -d' ' -f1)  $name
