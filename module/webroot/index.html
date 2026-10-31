@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0a0e13">
+<title>CODM Optimizer</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <svg class="logo" viewBox="0 0 48 48" aria-hidden="true">
+      <circle cx="24" cy="24" r="17" fill="none" stroke="currentColor" stroke-width="2.5"/>
+      <circle cx="24" cy="24" r="4.5" fill="currentColor"/>
+      <path d="M24 2v10M24 36v10M2 24h10M36 24h10" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+    </svg>
+    <div class="brand-text">
+      <h1>CODM Optimizer</h1>
+      <p id="deviceLine">connecting…</p>
+    </div>
+  </div>
+  <div id="statusPill" class="pill pill-off">
+    <span class="dot"></span><span id="statusText">connecting</span>
+  </div>
+</header>
+
+<div id="bridgeWarning" class="banner" hidden>
+  <strong>WebUI bridge not available.</strong>
+  <span>Open this page from KernelSU / APatch → Modules → Web UI
+  (or a WebUI host such as MMRL on Magisk). The page can render, but it cannot
+  change anything without root access.</span>
+</div>
+
+<main>
+
+  <!-- ------------------------------------------------------- STATUS --- -->
+  <section id="tab-status" class="tab">
+    <div class="card hero">
+      <div class="hero-top">
+        <div>
+          <p class="label">Active profile</p>
+          <h2 id="heroProfile">—</h2>
+          <p class="sub" id="heroProfileSub">—</p>
+        </div>
+        <div class="gauge" id="gauge">
+          <svg viewBox="0 0 100 100" aria-hidden="true">
+            <circle class="gauge-track" cx="50" cy="50" r="42"/>
+            <circle class="gauge-fill" id="gaugeFill" cx="50" cy="50" r="42"/>
+          </svg>
+          <div class="gauge-text">
+            <span id="gaugeValue">—</span><small>°C</small>
+          </div>
+        </div>
+      </div>
+      <div class="hero-foot">
+        <div><span class="k">SoC</span><span class="v" id="socTemp">—</span></div>
+        <div><span class="k">Guard</span><span class="v" id="guardState">—</span></div>
+        <div><span class="k">Level</span><span class="v" id="adaptLevel">—</span></div>
+      </div>
+      <canvas id="spark" height="48"></canvas>
+      <p class="hint" id="tempHint">Battery temperature, last 2 minutes.</p>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h3>Live state</h3>
+        <span class="chip" id="engineChip">—</span>
+      </div>
+      <ul class="rows">
+        <li><span>Game</span><b id="rowGame">—</b></li>
+        <li><span>Detection</span><b id="rowDetect">—</b></li>
+        <li><span>Panel max</span><b id="rowPanel">—</b></li>
+        <li><span>Refresh now</span><b id="rowRefresh">—</b></li>
+        <li><span>Game mode</span><b id="rowGamemode">—</b></li>
+        <li><span>Last session</span><b id="rowSession">—</b></li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h3>CPU</h3><span class="chip" id="cpuChip">—</span></div>
+      <div id="cpuList" class="cpu-list"><p class="empty">No cpufreq interface.</p></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h3>GPU</h3><span class="chip" id="gpuChip">—</span></div>
+      <div id="gpuBody" class="empty">—</div>
+    </div>
+
+    <div class="quick">
+      <button class="btn" data-act="apply">Apply now</button>
+      <button class="btn ghost" data-act="release">Release</button>
+      <button class="btn ghost" data-act="restart">Restart engine</button>
+    </div>
+    <p class="footnote">
+      The profile only runs while Call of Duty is in the foreground.
+      “Apply now” is for testing and is released on the next engine tick.
+    </p>
+  </section>
+
+  <!-- --------------------------------------------------------- TUNE --- -->
+  <section id="tab-tune" class="tab" hidden>
+    <div class="card">
+      <div class="card-head"><h3>Profile</h3></div>
+      <div id="profileList" class="profiles"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h3>Engine &amp; display</h3></div>
+      <label class="toggle">
+        <span><b>Auto engine</b><small>Watch for CODM and apply automatically</small></span>
+        <input type="checkbox" data-key="ENGINE_ENABLED"><i></i>
+      </label>
+      <label class="toggle">
+        <span><b>Refresh lock</b><small>Keep the panel at its highest rate while gaming</small></span>
+        <input type="checkbox" data-key="REFRESH_LOCK"><i></i>
+      </label>
+      <div class="field">
+        <span><b>Refresh cap</b><small>auto = panel maximum</small></span>
+        <select data-key="REFRESH_HZ">
+          <option value="auto">auto</option>
+          <option value="60">60 Hz</option>
+          <option value="90">90 Hz</option>
+          <option value="120">120 Hz</option>
+          <option value="144">144 Hz</option>
+          <option value="165">165 Hz</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h3>Android game mode</h3></div>
+      <label class="toggle">
+        <span><b>Use platform game mode</b><small>Same mechanism as the Android game dashboard</small></span>
+        <input type="checkbox" data-key="GAME_MODE"><i></i>
+      </label>
+      <div class="field">
+        <span><b>Frame rate request</b><small>0 = leave the device default</small></span>
+        <select data-key="GAME_MODE_FPS">
+          <option value="0">device default</option>
+          <option value="60">60 fps</option>
+          <option value="90">90 fps</option>
+          <option value="120">120 fps</option>
+        </select>
+      </div>
+      <div class="field">
+        <span><b>Render scale</b><small>lower = smoother, softer image</small></span>
+        <select data-key="GAME_MODE_DOWNSCALE">
+          <option value="off">off</option>
+          <option value="0.9">0.9 (subtle)</option>
+          <option value="0.8">0.8</option>
+          <option value="0.7">0.7</option>
+          <option value="0.6">0.6 (aggressive)</option>
+          <option value="0.5">0.5</option>
+        </select>
+      </div>
+      <p class="hint" id="gamemodeHint">—</p>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h3>Thermal</h3></div>
+      <div class="field slider">
+        <span><b>Back-off temperature</b><small>profile is released at this battery temperature</small></span>
+        <output id="tempLimitOut">43 °C</output>
+        <input type="range" min="35" max="50" step="1" data-key="TEMP_LIMIT_C">
+      </div>
+      <div class="field slider">
+        <span><b>Thermal lift</b><small>0 = never touch thermal policy (recommended)</small></span>
+        <output id="thermalLiftOut">0 °C</output>
+        <input type="range" min="0" max="8" step="1" data-key="THERMAL_LIFT_C">
+      </div>
+      <p class="hint warn" id="thermalWarn" hidden>
+        Raising thermal trips lets the phone run hotter for longer. Keep it at 0
+        unless you use an external cooler. The back-off guard above always
+        stays active.
+      </p>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h3>Adaptive ladder</h3></div>
+      <p class="hint">
+        Used by the <b>adaptive</b> profile. GPU floor (%) per temperature step;
+        refresh is capped only at the hot step.
+      </p>
+      <div class="field slider">
+        <span><b>Cool GPU floor</b><small>below limit − 5 °C</small></span>
+        <output id="gpuCoolOut">40 %</output>
+        <input type="range" min="0" max="100" step="5" data-key="ADAPT_GPU_COOL">
+      </div>
+      <div class="field slider">
+        <span><b>Warm GPU floor</b><small>limit − 5 … limit − 2 °C</small></span>
+        <output id="gpuWarmOut">28 %</output>
+        <input type="range" min="0" max="100" step="1" data-key="ADAPT_GPU_WARM">
+      </div>
+      <div class="field slider">
+        <span><b>Hot GPU floor</b><small>limit − 2 °C … limit</small></span>
+        <output id="gpuHotOut">15 %</output>
+        <input type="range" min="0" max="100" step="5" data-key="ADAPT_GPU_HOT">
+      </div>
+      <div class="field slider">
+        <span><b>Hot refresh cap</b><small>panel rate at the hot step</small></span>
+        <output id="hzHotOut">90 Hz</output>
+        <input type="range" min="60" max="165" step="15" data-key="ADAPT_HZ_HOT">
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h3>Extras</h3></div>
+      <label class="toggle">
+        <span><b>Verbose logging</b><small>records every knob that was skipped</small></span>
+        <input type="checkbox" data-key="VERBOSE_LOG"><i></i>
+      </label>
+      <label class="toggle" id="denylistRow" hidden>
+        <span><b>Magisk DenyList</b><small>hide root mounts from CODM (compatibility, optional)</small></span>
+        <input type="checkbox" data-key="__denylist"><i></i>
+      </label>
+      <button class="btn danger wide" data-act="reset">Reset everything to defaults</button>
+      <p class="hint">Reset releases every applied knob and restores the shipped configuration.</p>
+    </div>
+  </section>
+
+  <!-- --------------------------------------------------------- LOGS --- -->
+  <section id="tab-logs" class="tab" hidden>
+    <div class="card">
+      <div class="card-head">
+        <h3>Module log</h3>
+        <div class="tools">
+          <button class="mini" data-act="refresh-log">Refresh</button>
+          <button class="mini" data-act="clear-log">Clear</button>
+        </div>
+      </div>
+      <pre id="logBox" class="log">loading…</pre>
+    </div>
+    <div class="card">
+      <div class="card-head"><h3>Sessions</h3></div>
+      <div id="sessionList" class="sessions"><p class="empty">No sessions recorded yet.</p></div>
+    </div>
+  </section>
+
+  <!-- --------------------------------------------------------- INFO --- -->
+  <section id="tab-info" class="tab" hidden>
+    <div class="card">
+      <div class="card-head"><h3>Device</h3></div>
+      <ul class="rows">
+        <li><span>Model</span><b id="infoModel">—</b></li>
+        <li><span>SoC</span><b id="infoSoc">—</b></li>
+        <li><span>Android</span><b id="infoAndroid">—</b></li>
+        <li><span>Root</span><b id="infoRoot">—</b></li>
+        <li><span>SELinux</span><b id="infoSelinux">—</b></li>
+        <li><span>Module</span><b id="infoModule">—</b></li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="card-head"><h3>What this phone supports</h3></div>
+      <ul class="checks" id="capList"></ul>
+      <p class="hint">
+        Anything marked unsupported is simply not exposed by this kernel, so the
+        module leaves it alone instead of pretending.
+      </p>
+    </div>
+    <div class="card">
+      <div class="card-head"><h3>How it works</h3></div>
+      <p class="text">
+        While Call of Duty: Mobile is in the foreground the engine raises the
+        CPU ramp speed, keeps a floor under the GPU clock, holds the panel at
+        its highest refresh rate and asks Android for performance mode. When
+        the game leaves the screen, or the phone gets warm, every value is put
+        back exactly as it was.
+      </p>
+      <p class="text">
+        Nothing is written to the game: no file edits, no memory patching, no
+        anti-cheat tricks. Only system tunables are used, which is why
+        uninstalling really does undo it.
+      </p>
+    </div>
+    <div class="card">
+      <div class="card-head"><h3>Paths</h3></div>
+      <ul class="rows mono">
+        <li><span>config</span><b>/data/adb/codm-optimizer/config.conf</b></li>
+        <li><span>log</span><b>/data/adb/codm-optimizer/logs/module.log</b></li>
+        <li><span>state</span><b>/data/adb/codm-optimizer/state/</b></li>
+      </ul>
+      <p class="hint">
+        Uninstall from the manager to remove everything; the uninstaller
+        restores every knob first.
+      </p>
+    </div>
+  </section>
+
+</main>
+
+<nav class="tabbar" role="tablist">
+  <button class="tabbtn active" data-tab="status" role="tab">
+    <svg viewBox="0 0 24 24"><path d="M3 12h4l2-7 4 14 2-7h6"/></svg><span>Status</span>
+  </button>
+  <button class="tabbtn" data-tab="tune" role="tab">
+    <svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg><span>Tune</span>
+  </button>
+  <button class="tabbtn" data-tab="logs" role="tab">
+    <svg viewBox="0 0 24 24"><path d="M5 4h14v16H5z"/><path d="M8 9h8M8 13h8M8 17h5"/></svg><span>Logs</span>
+  </button>
+  <button class="tabbtn" data-tab="info" role="tab">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></svg><span>Info</span>
+  </button>
+</nav>
+
+<div id="toast" class="toast" hidden></div>
+
+<script src="app.js"></script>
+</body>
+</html>

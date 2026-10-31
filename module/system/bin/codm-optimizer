@@ -1,0 +1,293 @@
+#!/system/bin/sh
+#
+# codm-optimizer - command line interface for the CODM Optimizer module
+#
+# Installed to /system/bin by the module, so it is on PATH for any root
+# shell (Termux, adb shell, a terminal app).  Every subcommand is
+# idempotent and safe to run at any time.
+
+SELF=$0
+
+# ------------------------------------------------------------- bootstrap --
+find_moddir() {
+    # test / developer hook
+    if [ -n "${CODM_MODDIR:-}" ] && [ -f "$CODM_MODDIR/common/const.sh" ]; then
+        printf '%s' "$CODM_MODDIR"
+        return 0
+    fi
+    for _d in /data/adb/modules/codm-optimizer \
+              /data/adb/modules_update/codm-optimizer \
+              /data/adb/modules/*codm*; do
+        [ -f "$_d/common/const.sh" ] && { printf '%s' "$_d"; return 0; }
+    done
+    return 1
+}
+
+MODDIR=$(find_moddir) || {
+    printf 'codm-optimizer: module directory not found (is the module installed?)\n' >&2
+    exit 1
+}
+
+. "$MODDIR/common/const.sh"
+. "$MODDIR/common/log.sh"
+. "$MODDIR/common/util.sh"
+. "$MODDIR/common/config.sh"
+. "$MODDIR/common/control.sh"
+. "$MODDIR/common/device.sh"
+. "$MODDIR/common/game.sh"
+. "$MODDIR/common/display.sh"
+. "$MODDIR/common/gamemode.sh"
+. "$MODDIR/common/thermal.sh"
+. "$MODDIR/common/profile.sh"
+. "$MODDIR/common/status.sh"
+
+# --------------------------------------------------------------- elevate --
+_need_root() {
+    if [ "$(id -u 2>/dev/null)" = 0 ]; then
+        return 0
+    fi
+    if command -v su >/dev/null 2>&1; then
+        _args=
+        for _a in "$@"; do
+            _args="$_args '$(printf '%s' "$_a" | sed "s/'/'\\\\''/g")'"
+        done
+        exec su -c "$SELF$_args"
+    fi
+    printf 'codm-optimizer: root is required\n' >&2
+    exit 1
+}
+
+# ---------------------------------------------------------------- engine --
+_start_engine() {
+    if engine_start; then
+        say "engine running (pid ${ENGINE_PID:-?}, profile $PROFILE)"
+    else
+        say "engine did not start, check $LOG_FILE"
+        return 1
+    fi
+}
+
+_stop_engine() {
+    engine_stop
+    say "engine stopped (every knob restored)"
+}
+
+# ------------------------------------------------------------------ help --
+usage() {
+    cat <<EOF
+$MODNAME command line
+
+  status              one screen report of the module and the device
+  doctor              capability checks with a verdict
+  start | stop        start or stop the background engine
+  on | off            enable or disable the engine (persistent)
+  profile [name]      show or switch profile
+  apply | release     apply or revert the profile right now
+  game [on|off]       use the Android Game Mode API for CODM
+  game fps <n>         ask the platform for n fps (0 = device default)
+  game downscale <r>  render scale 0.5-1.0, or 'off'
+  game reset          remove the platform game mode overrides
+  display [hz]        show refresh info or lock the panel at <hz> while gaming
+  hide [on|off]       add/remove CODM in the Magisk DenyList (root hiding)
+  config              print the configuration file
+  set <key> <value>   change one configuration key
+  log [n]             show the last n log lines (default 40)
+  sessions            recent gaming sessions
+  reset               restore defaults and revert everything
+  version             module version
+EOF
+}
+
+# -------------------------------------------------------------- commands --
+cmd_profile() {
+    if [ -z "${1:-}" ]; then
+        say "current profile: $PROFILE"
+        say ""
+        for _f in "$MODDIR/profiles"/*.conf; do
+            [ -f "$_f" ] || continue
+            _n=${_f##*/}
+            _n=${_n%.conf}
+            _desc=$(sed -n 's/^#: //p' "$_f" | head -1)
+            if [ "$_n" = "$PROFILE" ]; then
+                printf '  %s*%s %-12s %s\n' "$C_G" "$C_RST" "$_n" "${_desc:-}"
+            else
+                printf '    %-12s %s\n' "$_n" "${_desc:-}"
+            fi
+        done
+        unset _f _n _desc
+        return 0
+    fi
+    case $1 in
+        adaptive|balanced|performance|extreme|battery) ;;
+        *) say "unknown profile: $1"; return 1 ;;
+    esac
+    config_set PROFILE "$1"
+    say "profile set to $1"
+    if _pid=$(engine_pid); then
+        say "the running engine will pick it up within 15s"
+        unset _pid
+    fi
+    return 0
+}
+
+cmd_game() {
+    case ${1:-status} in
+        on)
+            config_set GAME_MODE 1
+            config_load
+            gamemode_apply
+            say "game mode: $(report_gamemode)"
+            ;;
+        off)
+            config_set GAME_MODE 0
+            gamemode_restore
+            say "game mode overrides removed"
+            ;;
+        fps)
+            is_uint "${2:-}" || { say "usage: codm-optimizer game fps <n>"; return 1; }
+            config_set GAME_MODE_FPS "$2"
+            config_set GAME_MODE 1
+            config_load
+            gamemode_apply
+            say "fps request: $2 ($(report_gamemode))"
+            ;;
+        downscale)
+            _v=${2:-off}
+            case $_v in
+                off|0.5|0.6|0.7|0.8|0.9|1|1.0) ;;
+                *) say "usage: codm-optimizer game downscale <0.5-1.0|off>"; return 1 ;;
+            esac
+            config_set GAME_MODE_DOWNSCALE "$_v"
+            config_set GAME_MODE 1
+            config_load
+            gamemode_apply
+            say "downscale: $_v ($(report_gamemode))"
+            ;;
+        reset)
+            gamemode_restore
+            say "game mode overrides removed"
+            ;;
+        status|*)
+            say "$(report_gamemode)"
+            ;;
+    esac
+    return 0
+}
+
+cmd_display() {
+    if [ -z "${1:-}" ]; then
+        say "$(report_refresh)"
+        return 0
+    fi
+    is_uint "$1" || { say "usage: codm-optimizer display <hz>|auto"; return 1; }
+    config_set REFRESH_HZ "$1"
+    config_set REFRESH_LOCK 1
+    config_load
+    display_apply
+    say "$(report_refresh)"
+    return 0
+}
+
+cmd_hide() {
+    if ! command -v magisk >/dev/null 2>&1; then
+        say "magisk not found - DenyList is a Magisk feature"
+        return 1
+    fi
+    _pkg=$(game_primary_pkg)
+    case ${1:-status} in
+        on)
+            magisk --denylist add "$_pkg" 2>&1 | head -3
+            say "added $_pkg to the DenyList (reboot for a clean state)"
+            ;;
+        off)
+            magisk --denylist rm "$_pkg" 2>&1 | head -3
+            say "removed $_pkg from the DenyList"
+            ;;
+        *)
+            magisk --denylist ls 2>/dev/null | grep -F "$_pkg" &&
+                say "$_pkg is in the DenyList" ||
+                say "$_pkg is NOT in the DenyList"
+            ;;
+    esac
+    unset _pkg
+    return 0
+}
+
+cmd_sessions() {
+    if [ ! -f "$SESSION_FILE" ]; then
+        say "no sessions recorded yet"
+        return 0
+    fi
+    printf '%-20s %8s %-12s %6s %s\n' "started" "minutes" "profile" "maxC" "end"
+    tail -n 15 "$SESSION_FILE" | while IFS='	' read -r st dur prof maxt end; do
+        is_uint "$st" || continue
+        printf '%-20s %8s %-12s %6s %s\n' \
+            "$(date -d "@$st" '+%Y-%m-%d %H:%M' 2>/dev/null || printf '%s' "$st")" \
+            "$(is_uint "$dur" && printf '%s' $((dur / 60)) || printf '?')" \
+            "${prof:--}" "${maxt:--}" "${end:--}"
+    done
+}
+
+cmd_reset() {
+    say "reverting every knob the module touched"
+    config_load
+    profile_restore_all
+    restore_all
+    if [ -f "$MODDIR/config/default.conf" ]; then
+        cp -f "$MODDIR/config/default.conf" "$CONF" 2>/dev/null
+        say "config reset to defaults"
+    fi
+    say "done"
+}
+
+# ------------------------------------------------------------------- main --
+_need_root "$@"
+
+CMD=${1:-status}
+[ $# -gt 0 ] && shift
+
+case $CMD in
+    status)          config_load; status_report ;;
+    doctor)          doctor_report ;;
+    start)           _start_engine ;;
+    stop)            _stop_engine ;;
+    restart)         _stop_engine; sleep 1; _start_engine ;;
+    on)              config_set ENGINE_ENABLED 1; config_load; say "engine enabled"; _start_engine ;;
+    off)
+        config_set ENGINE_ENABLED 0
+        config_load
+        sleep 1
+        _stop_engine >/dev/null 2>&1
+        say "engine disabled and stopped; every knob is back to stock"
+        ;;
+    profile)         config_load; cmd_profile "$@" ;;
+    apply)           config_load; profile_apply_all; say "profile '$PROFILE' applied ($APPLIED_COUNT knobs)" ;;
+    release)         config_load; profile_restore_all; say "profile released" ;;
+    game)            config_load; cmd_game "$@" ;;
+    display)         config_load; cmd_display "$@" ;;
+    hide)            config_load; cmd_hide "$@" ;;
+    config)          say "$CONF"; sed 's/^/  /' "$CONF" 2>/dev/null ;;
+    set)
+        [ -n "${1:-}" ] && [ -n "${2:-}" ] || { say "usage: codm-optimizer set <key> <value>"; exit 1; }
+        config_set "$1" "$2"
+        say "$1=$2"
+        ;;
+    log)
+        _n=${1:-40}
+        is_uint "$_n" || _n=40
+        tail -n "$_n" "$LOG_FILE" 2>/dev/null || say "no log yet ($LOG_FILE)"
+        ;;
+    sessions)        cmd_sessions ;;
+    reset)           cmd_reset ;;
+    version)
+        printf '%s %s\n' "$MODNAME" "$(sed -n 's/^version=//p' "$MODDIR/module.prop" 2>/dev/null | head -1)"
+        ;;
+    help|-h|--help)  usage ;;
+    *)
+        say "unknown command: $CMD"
+        usage
+        exit 1
+        ;;
+esac
+
+exit 0

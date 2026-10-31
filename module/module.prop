@@ -1,0 +1,6 @@
+id=codm-optimizer
+name=CODM Optimizer
+version=v1.1.0
+versionCode=10100
+author=DinoCore-Dev
+description=Thermal-aware optimiser for Call of Duty: Mobile (Global, Garena, VNG, Tencent) with a web interface for KernelSU/APatch. Eases GPU and refresh before the thermal limit, tunes CPU ramp, network and the Android Game Mode API only while CODM is in front, and reverts everything when it closes. No game files, no memory patching, no cheats.
