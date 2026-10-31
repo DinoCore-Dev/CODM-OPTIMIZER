@@ -71,3 +71,6 @@ jobs:
             dist/*.zip
             dist/*.sha256
           generate_release_notes: true
+          # tags like v1.0.0-preview1 are marked as pre-releases
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          name: CODM Optimizer ${{ github.ref_name }}
