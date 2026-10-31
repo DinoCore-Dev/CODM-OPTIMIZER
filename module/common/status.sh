@@ -29,23 +29,6 @@ _warn_s() { printf '%swarn%s' "$C_Y" "$C_RST"; }
 
 _MOD_VER=$(sed -n 's/^version=//p' "$MODDIR/module.prop" 2>/dev/null | head -1)
 
-engine_pid() {
-    _p=$(read_file "$PID_FILE" 2>/dev/null)
-    if pid_is_alive "$_p"; then
-        printf '%s' "$_p"
-        unset _p
-        return 0
-    fi
-    unset _p
-    return 1
-}
-
-engine_state() {
-    _s=$(read_file "$RUN_DIR/state" 2>/dev/null)
-    printf '%s' "${_s:-unknown}"
-    unset _s
-}
-
 session_summary() {
     [ -f "$SESSION_FILE" ] || return 1
     _l=$(tail -1 "$SESSION_FILE" 2>/dev/null)

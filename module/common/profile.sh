@@ -11,6 +11,7 @@
 # touches the game's own files or memory.
 
 APPLIED_COUNT=0
+ADAPTIVE_APPLIED=
 
 _applied() { APPLIED_COUNT=$((APPLIED_COUNT + 1)); }
 
@@ -69,7 +70,7 @@ profile_apply_cpu() {
 # ------------------------------------------------------------------ gpu --
 profile_apply_gpu() {
     [ "${GPU_TUNE:-0}" = 1 ] || return 0
-    [ -n "$GPU_DIR" ] || { log_v "gpu: no controllable node on this device"; return 0; }
+    [ -n "${GPU_DIR:-}" ] || { log_v "gpu: no controllable node on this device"; return 0; }
 
     if [ "${GPU_GOVERNOR:-auto}" != auto ] && [ -n "${GPU_GOVERNOR:-}" ]; then
         for _gp in "$GPU_DIR/devfreq" "$GPU_DIR"; do
@@ -189,19 +190,85 @@ profile_apply_net() {
     return 0
 }
 
+# ------------------------------------------------------------- adaptive --
+#
+# The adaptive profile does not have one setting: it has a small ladder.
+# Instead of holding maximum clocks until the thermal limit and then
+# falling off a cliff, it eases the two knobs that cost the most heat -
+# the GPU floor and the refresh rate - one step earlier.  The result is a
+# slightly slower frame rate that stays *consistent*, which is what a
+# shooter actually needs, and a phone that does not cook itself.
+#
+#   battery  < limit-5C   cool : full GPU floor, full refresh
+#   battery limit-2 .. limit  hot  : low GPU floor, refresh capped
+#   battery >= limit      engine releases everything (thermal guard)
+#
+adaptive_level() {
+    _limit=${TEMP_LIMIT_C:-43}
+    is_uint "$_limit" || _limit=43
+    _cool=${ADAPT_COOL_BELOW:-$((_limit - 5))}
+    _warm=${ADAPT_WARM_BELOW:-$((_limit - 2))}
+    _t=$(battery_temp_c)
+    if ! is_uint "$_t"; then
+        printf 'cool'
+    elif [ "$_t" -ge "$_warm" ]; then
+        printf 'hot'
+    elif [ "$_t" -ge "$_cool" ]; then
+        printf 'warm'
+    else
+        printf 'cool'
+    fi
+    unset _limit _cool _warm _t
+}
+
+adaptive_apply() {
+    [ "${ADAPTIVE:-0}" = 1 ] || return 0
+    _lvl=$(adaptive_level)
+    if [ "$_lvl" = "${ADAPTIVE_APPLIED:-}" ]; then
+        return 0
+    fi
+    ADAPTIVE_APPLIED=$_lvl
+
+    case $_lvl in
+        cool) _gpu=${ADAPT_GPU_COOL:-40}; _hz=${ADAPT_HZ_COOL:-auto} ;;
+        warm) _gpu=${ADAPT_GPU_WARM:-28}; _hz=${ADAPT_HZ_WARM:-auto} ;;
+        *)    _gpu=${ADAPT_GPU_HOT:-15};  _hz=${ADAPT_HZ_HOT:-90} ;;
+    esac
+    is_uint "$_gpu" || _gpu=30
+
+    GPU_MIN_PCT=$_gpu
+    profile_apply_gpu
+
+    if [ "${REFRESH_LOCK:-1}" = 1 ]; then
+        REFRESH_HZ=$_hz
+        display_apply
+    fi
+
+    _t=$(battery_temp_c)
+    log_i "adaptive: level=$_lvl (battery ${_t:-?}C) gpu=${_gpu}% refresh=${_hz}"
+    unset _lvl _gpu _hz _t
+    return 0
+}
+
 # --------------------------------------------------------------- driver --
 profile_apply_all() {
     APPLIED_COUNT=0
+ADAPTIVE_APPLIED=
+    ADAPTIVE_APPLIED=
     dev_probe
     profile_apply_cpu
-    profile_apply_gpu
+    if [ "${ADAPTIVE:-0}" = 1 ]; then
+        adaptive_apply
+    else
+        profile_apply_gpu
+        display_apply
+    fi
     profile_apply_uclamp
     profile_apply_stune
     profile_apply_io
     profile_apply_cpus
     profile_apply_net
     gamemode_apply
-    display_apply
     thermal_lift_apply
     log_i "profile '$PROFILE' applied: $APPLIED_COUNT knob(s)"
     return 0
@@ -213,6 +280,7 @@ profile_restore_all() {
     display_restore
     thermal_lift_restore
     APPLIED_COUNT=0
+ADAPTIVE_APPLIED=
     log_i "profile '$PROFILE' released"
     return 0
 }

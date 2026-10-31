@@ -16,7 +16,7 @@ display_apply() {
     [ "${REFRESH_LOCK:-0}" = 1 ] || return 0
     _have settings || return 0
 
-    _max=$(display_max_hz)
+    _max=$(display_max_hz_cached)
     if ! is_uint "$_max" || [ "$_max" -lt 60 ] 2>/dev/null; then
         log_v "display: cannot determine max refresh rate, skipping"
         unset _max
@@ -53,7 +53,7 @@ display_restore() { return 0; }
 report_refresh() {
     _min=$(settings get system min_refresh_rate 2>/dev/null)
     _peak=$(settings get system peak_refresh_rate 2>/dev/null)
-    _max=$(display_max_hz)
+    _max=$(display_max_hz_cached)
     printf 'panel max=%sHz  min_refresh_rate=%s  peak_refresh_rate=%s' \
         "${_max:-?}" "${_min:-?}" "${_peak:-?}"
     unset _min _peak _max

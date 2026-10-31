@@ -8,6 +8,24 @@
 
 DEV_PROBED=0
 
+# Defaults so that a caller which has not run dev_probe() yet (or a kernel
+# that exposes nothing) never trips over an unset variable under `set -u`.
+DEV_BRAND=
+DEV_MODEL=
+DEV_BOARD=
+DEV_SOC=
+DEV_SOC_MFG=
+DEV_RELEASE=
+DEV_SDK=
+DEV_KERNEL=
+DEV_PLATFORM=unknown
+ROOT_IMPL=unknown
+ROOT_VER=
+SELINUX=
+GPU_DRIVER=none
+GPU_DIR=
+GPU_FREQ_KIND=
+
 dev_probe() {
     [ "$DEV_PROBED" = 1 ] && return 0
 
@@ -244,6 +262,30 @@ display_max_hz() {
         sed -n 's/.*@\([0-9][0-9]*\).*/\1/p')
     printf '%s' "${_hz:-}"
     unset _hz
+}
+
+# display_max_hz_cached - same value, cached for an hour.
+# `dumpsys display` is not expensive but the WebUI asks for it every few
+# seconds, and the answer never really changes on a given device.
+display_max_hz_cached() {
+    _c=$STATE_DIR/panel_max_hz
+    [ -d "$STATE_DIR" ] || mkdir -p "$STATE_DIR" 2>/dev/null
+    if [ -f "$_c" ]; then
+        _m=$(stat -c '%Y' "$_c" 2>/dev/null || printf '0')
+        _n=$(now_epoch)
+        if [ $((_n - _m)) -lt 3600 ] 2>/dev/null; then
+            printf '%s' "$(read_file "$_c")"
+            unset _c _m _n
+            return 0
+        fi
+    fi
+    _hz=$(display_max_hz)
+    if [ -n "$_hz" ]; then
+        printf '%s' "$_hz" >"$_c" 2>/dev/null
+        printf '%s' "$_hz"
+    fi
+    unset _c _m _n _hz
+    return 0
 }
 
 # current_refresh_hz - what the panel is measured at right now, if the

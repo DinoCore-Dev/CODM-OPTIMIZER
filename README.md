@@ -13,8 +13,13 @@ was before.
 It never touches the game's files, its memory, or its network traffic.
 
 ```
-id=codm-optimizer     version=v1.0.0     Android 8+     Magisk 20.4+ / KernelSU / APatch
+id=codm-optimizer     version=v1.1.0     Android 8+     Magisk 20.4+ / KernelSU / APatch
 ```
+
+It comes with a **Web UI** — you configure it by tapping, from inside your module
+manager. There is nothing to type. An `adaptive` profile is on by default: it
+eases the GPU and the refresh rate down *before* your phone reaches its thermal
+limit, then gives it all back when the phone cools.
 
 ---
 
@@ -39,8 +44,10 @@ can change it and why uninstalling really does undo it.
 
 - **Foreground-aware engine.** One tiny shell loop. Idle cost is a `pidof` every
   15 seconds. Nothing runs while you are not gaming.
-- **Four profiles** — `battery`, `balanced` (default), `performance`, `extreme`.
-  Switch at runtime; the engine notices within 15 seconds.
+- **Five profiles, `adaptive` by default** — it steps the GPU floor and refresh
+  rate down as the phone warms, before the phone throttles itself, then restores
+  them when it cools. Fixed profiles (`battery`, `balanced`, `performance`,
+  `extreme`) are there for phones with unreliable thermal sensors.
 - **Exact rollback.** Every knob write stores the previous value first
   (`/data/adb/codm-optimizer/state/originals`), so stopping, rebooting,
   uninstalling or a thermal event puts the device back. Crash-safe: the engine
@@ -50,12 +57,13 @@ can change it and why uninstalling really does undo it.
   an FPS target, or a render-scale reduction. Version-aware: Android 14, 13 and
   12 each get the call they actually support.
 - **Capability probing, never assumptions.** If a device does not expose a knob,
-  it is skipped and reported as "not supported here" instead of pretending.
-  `codm-optimizer doctor` prints exactly what works on *your* phone.
+  it is skipped and reported as "not exposed" instead of pretending. The Web
+  UI's **Info** tab lists exactly what works on *your* phone.
 - **Thermal guard that cannot be turned off.** At `TEMP_LIMIT_C` (default 43 °C
   battery) the whole profile is dropped to stock until the phone cools 3 °C.
-- **Diagnostics built in.** `status`, `doctor`, `sessions`, a log, and a Magisk
-  action-button snapshot.
+- **A Web UI you tap, not a terminal you type at.** It ships inside the module,
+  so KernelSU / APatch / MMRL open it with one tap: a status screen, every
+  setting as a switch or slider, the log, and session history.
 
 ## What it does **not** do
 
@@ -82,46 +90,104 @@ This matters more than the feature list, so it is not buried:
 
 ## Install
 
-### Magisk (recommended)
-
-1. Download `codm-optimizer-v1.0.0.zip` from Releases, or build it (see below).
-2. Magisk → **Modules** → **Install from storage** → pick the zip.
+1. Download `codm-optimizer-v1.1.0.zip` from Releases, or build it (see below).
+2. Install it from your module manager:
+   - **KernelSU** → **Modules** → **Install from storage**
+   - **APatch** → **Modules** → **Install from storage**
+   - **Magisk** → **Modules** → **Install from storage**
 3. Reboot.
-4. Unlock the phone, wait ~15 seconds, then check:
+4. Open the module manager, tap CODM Optimizer, then **Open** / **Web UI**
+   (see below). You should see the battery temperature and a status pill that
+   says *watching*.
+
+That is the whole setup. No terminal, no config file, no commands.
+
+From a computer, if you prefer:
 
 ```sh
-su -c codm-optimizer doctor
-```
-
-From a computer:
-
-```sh
-adb push codm-optimizer-v1.0.0.zip /sdcard/Download/
-adb shell su -c 'magisk --install-module /sdcard/Download/codm-optimizer-v1.0.0.zip'
+adb push codm-optimizer-v1.1.0.zip /sdcard/Download/
+adb shell su -c 'magisk --install-module /sdcard/Download/codm-optimizer-v1.1.0.zip'
 adb reboot
 ```
-
-### KernelSU / APatch
-
-Same zip: KernelSU → **Modules** → **Install from storage**, or APatch → **Modules**.
-The module only needs `sh`, so there are no architecture or binary-compat issues.
-The CLI lands on `PATH` for any root shell.
-
-### Recovery (optional)
 
 The zip ships the standard `META-INF` wrapper, so flashing it from a custom
 recovery with Magisk already installed also works.
 
-### After installing
+## The Web UI
 
-Open CODM and play one match. Then:
+Everything is done by tapping. The module ships its own interface and your
+module manager serves it:
 
-```sh
-su -c codm-optimizer status     # what is applied right now
-su -c codm-optimizer sessions   # length, peak temperature, how each match ended
+| Manager | How to open it |
+| --- | --- |
+| **KernelSU** | **Modules** → CODM Optimizer → **Open** (Web UI) |
+| **APatch** | **Modules** → CODM Optimizer → **Web UI** |
+| **Magisk** | install [MMRL](https://github.com/MMRLApp/MMRL), then Modules → CODM Optimizer → **WebUI**; without MMRL, the module's **Action** button still gives you a one-shot status card |
+
+Four tabs:
+
+- **Status** — battery temperature on a gauge with the last two minutes as a
+  sparkline, what the engine is doing right now (*watching* / *in game* /
+  *cooling*), which thermal step adaptive is on, panel refresh rate, Android game
+  mode, and how your last session ended.
+- **Tune** — the profile cards and every setting as a switch or a slider:
+  refresh lock, Android Game Mode with fps target and render scale, thermal
+  limit, the GPU floor for each thermal step, how often to poll, how often to
+  re-apply. Changes are written as you touch them; there is no *Save* button.
+- **Logs** — the module log, and the session history with length, peak
+  temperature and end reason.
+- **Info** — device, root, module version, and a capability list that says
+  plainly what your phone exposes. *not exposed* is not an error: it means the
+  module skips that knob instead of faking it.
+
+The interface is three local files plus a small bridge script:
+
+```
+module/webroot/
+├── index.html      markup
+├── style.css       the entire theme, no external fonts or images
+├── app.js          polling, rendering, taps
+└── actions.sh      the bridge the page calls as root (0755)
 ```
 
-## Command line
+It makes **no network requests**: no CDN, no analytics, no fonts, no `http(s)`
+URLs anywhere in the source. `tools/lint.sh` enforces that, together with
+"every control in the page has a handler in the bridge" and "every value the UI
+reads is actually emitted by the bridge".
+
+> Older managers with no WebUI support: the CLI below does the same things. It
+> exists because some ROMs and some setups still need it — not because you are
+> expected to use it.
+
+## Profiles
+
+| Profile | What it does | Best for |
+| --- | --- | --- |
+| `adaptive` **(default)** | balanced while cool, then lowers the GPU floor and refresh rate in two steps before the thermal limit | every phone, every climate |
+| `balanced` | fixed moderate ramp, GPU floor 30 % | ROMs that misreport thermals |
+| `performance` | faster ramp, GPU floor 50 % | flagship-adjacent hardware |
+| `extreme` | fastest ramp, GPU floor 70 % | external cooler, short sessions |
+| `battery` | lowest floors, minimal tuning | long sessions, hot days |
+
+`adaptive` is the one to leave alone unless you have a reason. Its ladder, with
+the defaults (`TEMP_LIMIT_C=43`):
+
+| Battery temperature | GPU floor | Refresh |
+| --- | --- | --- |
+| below 38 °C | 40 % | as configured |
+| 38 °C (limit − 5) | 28 % | as configured |
+| 41 °C (limit − 2) | 15 % | capped at `ADAPT_HZ_HOT` (90 Hz) |
+| 43 °C (limit) | released — stock behaviour until 40 °C | stock |
+
+Each step is a reduction, never an increase: the phone is never pushed harder
+than its own thermal policy allows, it just stops being pushed in the wrong
+place. Every step is adjustable in **Tune → Adaptive**. Details:
+[docs/TUNING.md](docs/TUNING.md).
+
+## Command line (optional)
+
+The same controls exist as a CLI for scripts and for managers without WebUI
+support:
 
 ```sh
 codm-optimizer status              # one screen: device, engine, game, CPU/GPU, thermal, display
@@ -142,7 +208,8 @@ codm-optimizer reset               # revert everything and restore default confi
 ```
 
 The CLI re-executes itself through `su` if you forget it, so `codm-optimizer
-status` from Termux is enough.
+status` from Termux is enough. Column formatting is text-only; the Web UI shows
+the same data as gauges and switches.
 
 ## How it works
 
@@ -176,18 +243,8 @@ The only failure mode that could cost you a bootloop is deliberately absent: the
 module does not set properties, does not mount anything at boot, and does not
 replace system files.
 
-## Profiles
-
-| Profile | CPU ramp | GPU floor | uclamp | Best for |
-| --- | --- | --- | --- | --- |
-| `battery` | relaxed | 15 % | off | long sessions, hot climates |
-| `balanced` *(default)* | moderate | 30 % | off | most phones |
-| `performance` | fast | 50 % | 20 % | flagship-adjacent hardware |
-| `extreme` | fastest | 70 % | 40 % | external cooler, short sessions |
-
 GPU floor is a percentage of the frequency range the GPU itself advertises, so
 the same profile means sensible things on a Snapdragon 680 and an 8 Gen 3.
-Details and every knob: [docs/TUNING.md](docs/TUNING.md).
 
 ## Compatibility
 
@@ -198,12 +255,13 @@ Details and every knob: [docs/TUNING.md](docs/TUNING.md).
 | CODM Global, Garena, VNG, Tencent | packages are built in; `EXTRA_PACKAGES=` for re-releases |
 | Any SoC | Adreno and Mali devfreq are probed; unknown GPUs are left alone |
 
-**Honest status:** this repository has been validated with an offline test suite
-(79 checks: config parsing, knob write/rollback, thermal parsing, game-mode
-dispatch per API level, report generation) and syntax-checked against busybox
-`ash`. It has not been benchmarked on retail hardware by the author. Run
-`codm-optimizer doctor` on your phone: it is designed to tell you what is real on
-your device and what is skipped, rather than claim a number.
+**Honest status:** this repository is validated by an offline suite — 107 shell
+checks (config parsing, knob write/rollback, the adaptive thermal ladder, thermal
+parsing, game-mode dispatch per API level, the WebUI bridge contract) and 43
+headless UI checks that load `index.html` in jsdom and assert every panel
+renders. It has not been benchmarked on retail hardware by the author. The
+**Info** tab is designed to tell you what is real on your device and what is
+skipped, rather than claim a number.
 
 ## Safety
 
@@ -223,28 +281,43 @@ Magisk → Modules → remove **CODM Optimizer** → reboot. `uninstall.sh` stop
 engine, restores every saved knob, removes the Game Mode overrides, and deletes
 `/data/adb/codm-optimizer`.
 
-To pause instead of uninstalling: `codm-optimizer off` (or create
-`/data/adb/modules/codm-optimizer/disable` and reboot).
+To pause instead of uninstalling: switch the engine off in **Tune**, or create
+`/data/adb/modules/codm-optimizer/disable` and reboot.
 
 ## Development
 
 ```sh
 ./tools/lint.sh     # syntax (busybox ash), CRLF, module.prop, bashisms, dangerous patterns
-./tools/test.sh     # 79 offline tests, no phone required
-./build.sh          # lint + test + dist/codm-optimizer-v1.0.0.zip (+ sha256)
+./tools/test.sh     # 107 offline tests, no phone required
+npm install jsdom && node tools/uitest.js   # 43 headless WebUI checks (optional)
+./build.sh          # lint + test + dist/codm-optimizer-v1.1.0.zip (+ sha256)
 ./build.sh --fast   # package only
 ```
+
+The Web UI renders without a phone: serve the folder and open it with `?demo=1`,
+which fills every panel with sample data (the banner says so, and nothing is
+applied):
+
+```sh
+python3 -m http.server -d module/webroot 8000
+# http://localhost:8000/?demo=1
+```
+
+`tools/uitest.js` does the same thing headlessly and asserts that each tab
+renders, that a slider write reaches the bridge, and that a snapshot arriving
+mid-drag cannot snap a control back.
 
 Layout:
 
 ```
 module/                 contents of the zip (module.prop at the root, as Magisk requires)
   common/               sourced libraries: engine, profile, device, game, thermal, display, gamemode
+  webroot/              the Web UI (index.html, style.css, app.js, actions.sh)
   system/bin/           codm-optimizer CLI
   config/default.conf   initial user config
   profiles/             per-profile kernel knobs
-  *.sh                  Magisk lifecycle hooks
-tools/                  lint + offline test suite
+  *.sh                  Magisk lifecycle hooks + the Action button card
+tools/                  lint, offline shell tests, headless UI test
 docs/                   tuning reference, safety, troubleshooting
 build.sh                packaging
 ```

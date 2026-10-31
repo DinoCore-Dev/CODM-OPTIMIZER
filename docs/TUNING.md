@@ -3,8 +3,13 @@
 Every knob the module can write, what it is for, and what happens if it is not
 there. Nothing is written unless it exists **and** is writable.
 
-If a path is not listed as writable by `codm-optimizer doctor`, the module skips
-it silently (verbose logging shows why: `codm-optimizer set VERBOSE_LOG 1`).
+If a path is not listed as writable in the Web UI's **Info** tab, the module
+skips it silently (verbose logging shows why — switch on **Tune → Logging →
+Verbose**).
+
+Every key in the table below with a `…` in the *UI* column is also a control in
+the Web UI, so you never have to edit `config.conf` by hand. The table exists
+because a reference is easier to search than a page of switches.
 
 ---
 
@@ -12,7 +17,7 @@ it silently (verbose logging shows why: `codm-optimizer set VERBOSE_LOG 1`).
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `PROFILE` | `balanced` | `battery`, `balanced`, `performance`, `extreme` |
+| `PROFILE` | `adaptive` | `adaptive`, `battery`, `balanced`, `performance`, `extreme` |
 | `ENGINE_ENABLED` | `1` | `0` releases everything and parks the engine |
 | `POLL_GAME_SEC` | `5` | poll interval while CODM is visible |
 | `POLL_IDLE_SEC` | `15` | poll interval otherwise |
@@ -28,6 +33,12 @@ it silently (verbose logging shows why: `codm-optimizer set VERBOSE_LOG 1`).
 | `TEMP_LIMIT_C` | `43` | battery °C at which the profile is dropped |
 | `TEMP_RESUME_DELTA_C` | `3` | hysteresis before resuming |
 | `THERMAL_LIFT_C` | `0` | raise passive thermal trips by N °C (`0` = never) |
+| `ADAPT_GPU_COOL` | `40` | GPU floor (%) on the cool step of `adaptive` |
+| `ADAPT_GPU_WARM` | `28` | GPU floor (%) once battery ≥ `TEMP_LIMIT_C` − 5 |
+| `ADAPT_GPU_HOT` | `15` | GPU floor (%) once battery ≥ `TEMP_LIMIT_C` − 2 |
+| `ADAPT_HZ_COOL` | `auto` | refresh cap on the cool step (`auto` = leave the panel alone) |
+| `ADAPT_HZ_WARM` | `auto` | refresh cap on the warm step |
+| `ADAPT_HZ_HOT` | `90` | refresh cap on the hot step |
 
 Lower polling intervals cost more power and win little; the defaults are already
 aggressive enough to catch the game within one poll.
@@ -56,6 +67,28 @@ Set in `<module>/profiles/<profile>.conf`, and **overridden by the same key in
 | `TCP_TWEAK` | `1` | network block | |
 | `TCP_CC` | `auto` | congestion control | `bbr` if the kernel allows it |
 | `THERMAL_LIFT_C` | `0` | thermal trip points | see below, off by default |
+
+### The adaptive ladder
+
+`adaptive` is not a fifth fixed profile: it re-writes the GPU floor (and
+optionally the refresh cap) as the battery temperature crosses two thresholds
+below `TEMP_LIMIT_C`, so the phone sheds heat *before* its own thermal policy
+takes the decision out of your hands.
+
+```
+battery < TEMP_LIMIT_C - 5   cool   GPU_MIN_PCT = ADAPT_GPU_COOL (40)
+battery >= TEMP_LIMIT_C - 5  warm   GPU_MIN_PCT = ADAPT_GPU_WARM (28)
+battery >= TEMP_LIMIT_C - 2  hot    GPU_MIN_PCT = ADAPT_GPU_HOT  (15)
+                                    + refresh capped at ADAPT_HZ_HOT (90)
+battery >= TEMP_LIMIT_C      guard  everything released, stock until -3 °C
+```
+
+With the defaults that is 38 °C, 41 °C and 43 °C. Steps only ever *lower* the
+floor; when the phone cools the ladder climbs back. A step change re-applies the
+profile, so the stored originals are still the values that get restored. If you
+set `ADAPT_HZ_COOL`/`ADAPT_HZ_WARM` the panel is also pinned to that rate on
+those steps — leave them on `auto` unless your ROM ignores the game-mode
+refresh hint.
 
 ### Notable knobs, in detail
 

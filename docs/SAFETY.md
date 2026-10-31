@@ -18,7 +18,7 @@ Restore paths, in order of how often they happen:
 | Game leaves foreground | engine `deactivate()` |
 | Screen off / game in background > 45 s | engine |
 | Phone gets hot | thermal guard (also drops thermal lifts) |
-| `codm-optimizer off` / `reset` | CLI |
+| **Tune → Engine** switched off, or **Revert everything** | Web UI (`codm-optimizer off` / `reset`) |
 | Engine killed with SIGTERM | trap in `engine.sh` |
 | Engine killed with SIGKILL / crash / reboot mid-match | next engine start restores leftovers before doing anything |
 | Module disabled in Magisk and rebooted | `service.sh` never starts, so nothing is applied; leftovers still restore on the next enabled boot |
@@ -113,8 +113,8 @@ original files, and do not expect any anti-cheat module to keep you safe.
 
 ## Root hiding
 
-`codm-optimizer hide on` adds CODM to the Magisk DenyList. That is the same
-mechanism used for banking apps: it hides the root *mount namespace*, not what
+The **Tune** page's *Magisk DenyList* switch (`codm-optimizer hide on`) adds
+CODM to the Magisk DenyList. That is the same mechanism used for banking apps: it hides the root *mount namespace*, not what
 the module does. It is optional and never applied automatically.
 
 Some phones report "root/emulator detected" in CODM with root present even

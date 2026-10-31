@@ -15,23 +15,46 @@ game_pkg_list() {
 }
 
 # game_installed_packages - subset actually installed, one per line
+#
+# The fast path is the app's private data directory: one stat() per
+# candidate instead of a `pm list packages` binder round trip (which
+# costs a third of a second on some ROMs, and the WebUI asks for this on
+# every refresh).  `pm` stays as the fallback, and the result is cached
+# for two minutes either way.
 game_installed_packages() {
-    _pm_list=
-    if _have pm; then
-        _pm_list=$(pm list packages 2>/dev/null | sed 's/^package://')
+    _cache=$STATE_DIR/games.cache
+    if [ -f "$_cache" ]; then
+        _m=$(stat -c '%Y' "$_cache" 2>/dev/null || printf '0')
+        [ $(($(now_epoch) - _m)) -lt 120 ] 2>/dev/null && {
+            cat "$_cache" 2>/dev/null
+            unset _cache _m
+            return 0
+        }
+        unset _m
     fi
-    if [ -z "$_pm_list" ]; then
-        # Fallback for weird environments: look for the data directory.
-        for _p in $(game_pkg_list); do
-            [ -d "/data/data/$_p" ] && printf '%s\n' "$_p"
-        done
-        unset _pm_list _p
-        return 0
-    fi
+
+    _out=
     for _p in $(game_pkg_list); do
-        printf '%s\n' "$_pm_list" | grep -qxF "$_p" && printf '%s\n' "$_p"
+        if [ -d "/data/data/$_p" ] || [ -d "/data/user_de/0/$_p" ] ||
+            [ -d "/data/user/0/$_p" ]; then
+            _out="$_out$_p
+"
+        fi
     done
-    unset _pm_list _p
+
+    if [ -z "$_out" ] && _have pm; then
+        _pm_list=$(pm list packages 2>/dev/null | sed 's/^package://')
+        for _p in $(game_pkg_list); do
+            printf '%s\n' "$_pm_list" | grep -qxF "$_p" && _out="$_out$_p
+"
+        done
+        unset _pm_list
+    fi
+
+    [ -d "$STATE_DIR" ] || mkdir -p "$STATE_DIR" 2>/dev/null
+    printf '%s' "$_out" >"$_cache" 2>/dev/null
+    printf '%s' "$_out"
+    unset _cache _out _p
     return 0
 }
 

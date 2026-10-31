@@ -3,6 +3,34 @@
 All notable changes to this module. Versioning is `MAJOR.MINOR.PATCH`, and
 `versionCode` in `module.prop` is `major*10000 + minor*100 + patch`.
 
+## v1.1.0 — web interface, adaptive thermal ladder
+
+### Added
+
+- **Web UI** (`webroot/`) for KernelSU, APatch and any WebUI host: status,
+  profile switching, every toggle, thermal sliders, logs, sessions and a
+  capability report — no terminal needed. Self-contained HTML/CSS/JS, no CDN,
+  no network access.
+- `webroot/actions.sh`, a strictly validated bridge between the page and the
+  module (whitelisted keys, range-checked values, JSON-free output format).
+- **`adaptive` profile**, now the default: instead of holding maximum clocks
+  until the thermal limit and then collapsing, it steps the GPU floor
+  (40 → 28 → 15 %) and caps the refresh rate only at the hottest step, so the
+  frame rate stays consistent and the phone stays cool. The hard thermal guard
+  is unchanged.
+- Simpler start/stop plumbing (`common/control.sh`) shared by the CLI, the WebUI
+  and the boot service; a re-apply marker so a UI toggle takes effect on the
+  engine's next tick instead of waiting for the 60 s cycle.
+- Faster, cached lookups for the UI: panel maximum refresh (1 h) and installed
+  game packages (2 min, via the app's data directory instead of `pm`).
+
+### Changed
+
+- Default profile is now `adaptive` (was `balanced`). Nothing else changes for
+  existing users — the config file keeps its own `PROFILE=`.
+- `codm-optimizer profile` accepts `adaptive`; help text shortened.
+- Installer output now points at the Web UI first and the CLI second.
+
 ## v1.0.0 — first release
 
 ### Added

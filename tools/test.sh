@@ -374,6 +374,88 @@ echo "== thermal parsing =="
     thermal_cooled_down && no "hysteresis blocks resuming at 41.5C" || ok "hysteresis blocks resuming at 41.5C"
 )
 
+echo "== adaptive ladder =="
+(
+    export PSU_DIR="$TMP/psu2"
+    mkdir -p "$TMP/psu2/battery"
+    load_all
+    config_ensure
+    printf 'PROFILE=adaptive\nTEMP_LIMIT_C=43\n' >"$CONF"
+    config_load
+    eq "$PROFILE" "adaptive" "adaptive profile loads"
+    eq "$ADAPTIVE" "1" "adaptive profile enables the ladder"
+    eq "$ADAPT_GPU_COOL" "40" "cool GPU floor from the profile"
+    eq "$ADAPT_GPU_WARM" "28" "warm GPU floor from the profile"
+    eq "$ADAPT_GPU_HOT" "15" "hot GPU floor from the profile"
+
+    printf '350\n' >"$TMP/psu2/battery/temp"
+    eq "$(adaptive_level)" "cool" "35C is the cool step"
+    printf '390\n' >"$TMP/psu2/battery/temp"
+    eq "$(adaptive_level)" "warm" "39C is the warm step"
+    printf '420\n' >"$TMP/psu2/battery/temp"
+    eq "$(adaptive_level)" "hot" "42C is the hot step"
+
+    # a level change must be picked up exactly once
+    ADAPTIVE_APPLIED=
+    adaptive_apply
+    eq "$ADAPTIVE_APPLIED" "hot" "adaptive_apply records the level"
+    eq "$GPU_MIN_PCT" "15" "hot step lowers the GPU floor to 15%"
+    eq "$REFRESH_HZ" "90" "hot step caps refresh at 90Hz"
+    printf '360\n' >"$TMP/psu2/battery/temp"
+    adaptive_apply
+    eq "$ADAPTIVE_APPLIED" "cool" "cooling down moves back to the cool step"
+    eq "$GPU_MIN_PCT" "40" "cool step restores the GPU floor"
+
+    # fixed profiles must not run the ladder
+    printf 'PROFILE=balanced\n' >"$CONF"
+    config_load
+    eq "$ADAPTIVE" "0" "balanced is a fixed profile"
+)
+
+echo "== webui bridge =="
+(
+    # actions.sh resolves its module dir from its own path, so run it live
+    export FAKE_CMD_LOG="$TMP/webcmd.log"
+    : >"$FAKE_CMD_LOG"
+    OUT=$(sh "$MODULE_DIR/webroot/actions.sh" snapshot 2>&1)
+    contains "$OUT" "ok=1" "snapshot succeeds"
+    contains "$OUT" "module.version=" "snapshot reports the module version"
+    contains "$OUT" "engine.running=" "snapshot reports the engine"
+    contains "$OUT" "cfg.profile=" "snapshot reports the profile"
+    contains "$OUT" "thermal.limit=" "snapshot reports the thermal limit"
+    contains "$OUT" "cap.cpu=" "snapshot reports capabilities"
+
+    # settings are validated, everything else is refused
+    for bad in "set FOO 1" "set TEMP_LIMIT_C 999" "set TEMP_LIMIT_C 20" \
+               "set PROFILE evil" "set GAME_MODE_DOWNSCALE 0.1" \
+               "set THERMAL_LIFT_C 12" "set REFRESH_HZ 20" \
+               "set TEMP_LIMIT_C 43;reboot"; do
+        # shellcheck disable=SC2086
+        R=$(sh "$MODULE_DIR/webroot/actions.sh" $bad 2>&1)
+        case $R in
+            *"ok=0"*) ok "rejects: $bad" ;;
+            *) no "should reject: $bad (got: $R)" ;;
+        esac
+    done
+
+    R=$(sh "$MODULE_DIR/webroot/actions.sh" set TEMP_LIMIT_C 42 2>&1)
+    contains "$R" "ok=1" "accepts a valid temperature"
+    grep -q '^TEMP_LIMIT_C=42$' "$CONF" && ok "bridge wrote the config" || no "bridge wrote the config"
+
+    R=$(sh "$MODULE_DIR/webroot/actions.sh" profile adaptive 2>&1)
+    contains "$R" "ok=1" "accepts a valid profile"
+    grep -q '^PROFILE=adaptive$' "$CONF" && ok "profile written to config" || no "profile written to config"
+
+    R=$(sh "$MODULE_DIR/webroot/actions.sh" nope 2>&1)
+    contains "$R" "ok=0" "unknown command is refused"
+
+    # the page and the bridge must agree on the flat format
+    case $OUT in
+        *"row|"*) ok "snapshot emits row lines" ;;
+        *) no "snapshot should emit row lines" ;;
+    esac
+)
+
 echo "== reports =="
 (
     load_all

@@ -93,6 +93,99 @@ if [ -f "$MODULE_DIR/skip_mount" ]; then
     fail "skip_mount exists but the module ships files under system/"
 fi
 
+echo "web interface"
+for f in webroot/index.html webroot/style.css webroot/app.js webroot/actions.sh; do
+    if [ -f "$MODULE_DIR/$f" ]; then
+        ok "$f"
+    else
+        fail "$f missing"
+    fi
+done
+if [ -x "$MODULE_DIR/webroot/actions.sh" ]; then
+    ok "webroot/actions.sh is executable"
+
+# a single syntax error in app.js leaves the whole page blank
+if command -v node >/dev/null 2>&1; then
+    if node --check "$MODULE_DIR/webroot/app.js" >/dev/null 2>&1; then
+        ok "app.js parses (node --check)"
+    else
+        fail "app.js has a syntax error"
+    fi
+fi
+else
+    fail "webroot/actions.sh is not executable"
+fi
+# The page is loaded inside a WebView with no network guarantee, so any
+# remote asset would silently break the UI.
+if grep -nE '(src|href)="https?://' "$MODULE_DIR/webroot/index.html"; then
+    fail "index.html loads a remote resource (must work offline)"
+else
+    ok "no remote assets"
+fi
+# Every local file referenced by the page must exist.
+for ref in $(grep -oE '(src|href)="[A-Za-z0-9_.-]+"' "$MODULE_DIR/webroot/index.html" |
+    sed 's/.*="//; s/"$//'); do
+    [ -f "$MODULE_DIR/webroot/$ref" ] || fail "index.html references missing $ref"
+done
+# Every control in the page must be understood by the bridge.
+for key in $(grep -oE 'data-key="[A-Za-z_]+"' "$MODULE_DIR/webroot/index.html" |
+    sed 's/.*="//; s/"$//' | sort -u); do
+    [ "$key" = "__denylist" ] && continue
+    grep -q -- "$key" "$MODULE_DIR/webroot/actions.sh" ||
+        fail "UI control $key is not handled by actions.sh"
+done
+ok "web controls match the bridge"
+
+# app.js must only touch element ids that exist in index.html
+_missing_ids=0
+for id in $(grep -oE "\\\$\\('[A-Za-z0-9_-]+'\\)" "$MODULE_DIR/webroot/app.js" |
+    sed "s/.*('//; s/')//" | sort -u); do
+    if ! grep -qE "id=\"$id\"" "$MODULE_DIR/webroot/index.html"; then
+        fail "app.js uses #$id which index.html does not define"
+        _missing_ids=1
+    fi
+done
+[ "$_missing_ids" = 0 ] && ok "app.js ids all exist"
+
+# ... and every data-act button must have a handler
+for a in $(grep -oE 'data-act="[A-Za-z0-9_-]+"' "$MODULE_DIR/webroot/index.html" |
+    sed 's/.*="//; s/"$//' | sort -u); do
+    grep -q "a === '$a'" "$MODULE_DIR/webroot/app.js" ||
+        fail "data-act=\"$a\" has no handler in app.js"
+done
+ok "data-act handlers present"
+
+# every snapshot key the UI reads must actually be emitted by the bridge
+LINT_TMP=$(mktemp -d)
+trap 'rm -rf "$LINT_TMP"' EXIT
+_ui_kv=$(grep -oE "kv\['[a-z0-9._]+'\]" "$MODULE_DIR/webroot/app.js" |
+    sed "s/kv\['//; s/'\]//" | sort -u)
+_ui_emit=$(grep -oE '^[[:space:]]*emit [a-z0-9._]+' "$MODULE_DIR/webroot/actions.sh" |
+    awk '{print $2}' | sort -u)
+# keys built at runtime from data-key controls (and their aliases)
+_ui_dyn=$(grep -oE 'data-key="[A-Za-z_]+"' "$MODULE_DIR/webroot/index.html" |
+    sed 's/.*="//; s/"$//' | grep -v '^__' | tr 'A-Z' 'a-z' | sed 's/^/cfg./')
+_ui_alias=$(grep -oE "^  [A-Z_]+: '[a-z.]+'" "$MODULE_DIR/webroot/app.js" |
+    sed "s/.*: '//; s/'$//")
+_ui_known=$(printf '%s\n%s\n%s\n' "$_ui_emit" "$_ui_dyn" "$_ui_alias" | sort -u)
+_missing_keys=0
+printf '%s\n' "$_ui_kv" >"$LINT_TMP/ui_read"
+printf '%s\n' "$_ui_known" >"$LINT_TMP/ui_known"
+for k in $(comm -23 "$LINT_TMP/ui_read" "$LINT_TMP/ui_known"); do
+    fail "app.js reads '$k' which the bridge never emits"
+    _missing_keys=1
+done
+[ "$_missing_keys" = 0 ] && ok "every value the UI reads is in the snapshot"
+
+# ... and every row type the bridge prints must have a renderer
+for t in $(grep -oE 'row [a-z]+ ' "$MODULE_DIR/webroot/actions.sh" |
+    awk '{print $2}' | sort -u); do
+    grep -q "type === '$t'" "$MODULE_DIR/webroot/app.js" ||
+        fail "row type '$t' is emitted but has no renderer"
+done
+ok "row types have renderers"
+
+
 echo "installer wrapper"
 for f in META-INF/com/google/android/update-binary META-INF/com/google/android/updater-script; do
     [ -f "$MODULE_DIR/$f" ] && ok "$f" || fail "$f missing"

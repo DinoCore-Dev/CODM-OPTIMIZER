@@ -1,16 +1,29 @@
 # Troubleshooting
 
-Start with:
+Start with the Web UI — open the module manager, tap CODM Optimizer, **Open**:
 
-```sh
-su -c codm-optimizer doctor
-su -c codm-optimizer status
-su -c codm-optimizer log 60
-```
+1. **Status** — is the pill *watching* (engine alive), *in game*, *cooling*, or
+   *engine off*? Is the battery temperature moving?
+2. **Info** — the capability list. Anything marked *not exposed* is a knob your
+   kernel does not offer; the module skips it on purpose.
+3. **Logs** — the last lines, newest at the bottom.
+
+That is enough for almost every problem. The commands below are the same things
+as text, for a root shell or for pasting into a bug report:
+
+| Web UI | Command |
+| --- | --- |
+| **Info** (capability list) | `codm-optimizer doctor` |
+| **Status** | `codm-optimizer status` |
+| **Logs** | `codm-optimizer log 60` |
+| **Tune → Engine** off/on | `codm-optimizer off` / `on` |
+| **Tune → profile card** | `codm-optimizer profile <name>` |
+| any switch or slider | `codm-optimizer set <KEY> <VALUE>` |
+| **Tune → Revert everything** | `codm-optimizer reset` |
 
 `doctor` is written to be readable by people who did not write the module. A
 `WARN` almost always means "your kernel/ROM does not expose this", not "you did
-something wrong".
+something wrong" — the **Info** tab says the same thing in fewer words.
 
 ---
 

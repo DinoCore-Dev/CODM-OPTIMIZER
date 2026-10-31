@@ -159,6 +159,12 @@ guard_check() {
     fi
     unset _t
 
+    # Adaptive profiles step down before the thermal limit instead of
+    # after it; this is a no-op when the level has not changed.
+    if [ "$STATE" = active ] && [ "${ADAPTIVE:-0}" = 1 ]; then
+        adaptive_apply
+    fi
+
     if [ "$STATE" = active ] && thermal_too_hot; then
         log_w "thermal guard triggered, dropping to stock until it cools"
         deactivate "thermal limit"
@@ -183,6 +189,15 @@ guard_check() {
 main_loop() {
     while :; do
         maybe_reload_config
+
+        # The WebUI asks for an immediate re-apply after a toggle.
+        if [ -f "$RUN_DIR/reapply" ]; then
+            rm -f "$RUN_DIR/reapply" 2>/dev/null
+            if [ "$STATE" = active ]; then
+                log_v "re-apply requested (WebUI/CLI)"
+                apply_now
+            fi
+        fi
 
         if [ "${ENGINE_ENABLED:-1}" != 1 ]; then
             [ "$STATE" = active ] && deactivate "engine disabled"

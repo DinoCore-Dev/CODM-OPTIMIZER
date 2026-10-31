@@ -32,6 +32,7 @@ MODDIR=$(find_moddir) || {
 . "$MODDIR/common/log.sh"
 . "$MODDIR/common/util.sh"
 . "$MODDIR/common/config.sh"
+. "$MODDIR/common/control.sh"
 . "$MODDIR/common/device.sh"
 . "$MODDIR/common/game.sh"
 . "$MODDIR/common/display.sh"
@@ -58,57 +59,17 @@ _need_root() {
 
 # ---------------------------------------------------------------- engine --
 _start_engine() {
-    if _pid=$(engine_pid); then
-        say "engine already running (pid $_pid)"
-        unset _pid
-        return 0
-    fi
-    config_ensure
-    config_load
-    log_init
-    log_i "engine start requested from CLI"
-    # Double fork plus setsid keeps it alive after the CLI exits and after
-    # the terminal session goes away.
-    if command -v setsid >/dev/null 2>&1; then
-        ( setsid sh "$MODDIR/common/engine.sh" </dev/null >/dev/null 2>&1 & ) >/dev/null 2>&1
+    if engine_start; then
+        say "engine running (pid ${ENGINE_PID:-?}, profile $PROFILE)"
     else
-        ( sh "$MODDIR/common/engine.sh" </dev/null >/dev/null 2>&1 & ) >/dev/null 2>&1
+        say "engine did not start, check $LOG_FILE"
+        return 1
     fi
-    _i=0
-    while [ "$_i" -lt 20 ]; do
-        if _pid=$(engine_pid); then
-            say "engine started (pid $_pid, profile $PROFILE)"
-            unset _pid _i
-            return 0
-        fi
-        sleep 0.2 2>/dev/null || sleep 1
-        _i=$((_i + 1))
-    done
-    say "engine did not report a pid, check $LOG_FILE"
-    unset _i
-    return 1
 }
 
 _stop_engine() {
-    if ! _pid=$(engine_pid); then
-        say "engine is not running"
-        return 0
-    fi
-    log_i "engine stop requested from CLI"
-    kill -TERM "$_pid" 2>/dev/null
-    _i=0
-    while [ "$_i" -lt 25 ]; do
-        pid_is_alive "$_pid" || break
-        sleep 0.2 2>/dev/null || sleep 1
-        _i=$((_i + 1))
-    done
-    if pid_is_alive "$_pid"; then
-        kill -9 "$_pid" 2>/dev/null
-    fi
-    rm -f "$PID_FILE" 2>/dev/null
-    say "engine stopped (knobs restored by the module's exit handler)"
-    unset _pid _i
-    return 0
+    engine_stop
+    say "engine stopped (every knob restored)"
 }
 
 # ------------------------------------------------------------------ help --
@@ -120,7 +81,7 @@ $MODNAME command line
   doctor              capability checks with a verdict
   start | stop        start or stop the background engine
   on | off            enable or disable the engine (persistent)
-  profile [name]      show or switch profile (balanced|performance|extreme|battery)
+  profile [name]      show or switch profile
   apply | release     apply or revert the profile right now
   game [on|off]       use the Android Game Mode API for CODM
   game fps <n>         ask the platform for n fps (0 = device default)
@@ -157,7 +118,7 @@ cmd_profile() {
         return 0
     fi
     case $1 in
-        balanced|performance|extreme|battery) ;;
+        adaptive|balanced|performance|extreme|battery) ;;
         *) say "unknown profile: $1"; return 1 ;;
     esac
     config_set PROFILE "$1"

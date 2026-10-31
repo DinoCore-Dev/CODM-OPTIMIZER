@@ -64,7 +64,7 @@ config_load() {
     _load_kv "$CONF"
     PROFILE=$(printf '%s' "${PROFILE:-balanced}" | tr 'A-Z' 'a-z')
     case $PROFILE in
-        balanced|performance|extreme|battery) ;;
+        balanced|performance|extreme|battery|adaptive) ;;
         *) PROFILE=balanced ;;
     esac
 
@@ -77,7 +77,7 @@ config_load() {
 
     PROFILE=$(printf '%s' "${PROFILE:-balanced}" | tr 'A-Z' 'a-z')
     case $PROFILE in
-        balanced|performance|extreme|battery) ;;
+        balanced|performance|extreme|battery|adaptive) ;;
         *) PROFILE=balanced ;;
     esac
     _validate_config
@@ -112,6 +112,23 @@ _validate_config() {
     _num_or THERMAL_LIFT_C "${THERMAL_LIFT_C:-}" 0 0 8
     _num_or GAME_MODE_FPS "${GAME_MODE_FPS:-}" 0 0 240
     _num_or ENGINE_ENABLED "${ENGINE_ENABLED:-}" 1 0 1
+    # adaptive ladder
+    _num_or ADAPT_GPU_COOL "${ADAPT_GPU_COOL:-}" 40 0 100
+    _num_or ADAPT_GPU_WARM "${ADAPT_GPU_WARM:-}" 28 0 100
+    _num_or ADAPT_GPU_HOT "${ADAPT_GPU_HOT:-}" 15 0 100
+    _num_or ADAPT_HZ_HOT "${ADAPT_HZ_HOT:-}" 90 60 240
+    case ${ADAPT_HZ_COOL:-auto} in
+        auto|'') ADAPT_HZ_COOL=auto ;;
+        *) is_uint "$ADAPT_HZ_COOL" || ADAPT_HZ_COOL=auto ;;
+    esac
+    case ${ADAPT_HZ_WARM:-auto} in
+        auto|'') ADAPT_HZ_WARM=auto ;;
+        *) is_uint "$ADAPT_HZ_WARM" || ADAPT_HZ_WARM=auto ;;
+    esac
+    case ${ADAPTIVE:-0} in
+        1) ADAPTIVE=1 ;;
+        *) ADAPTIVE=0 ;;
+    esac
     case ${GAME_MODE:-1} in
         0) GAME_MODE=0 ;;
         *) GAME_MODE=1 ;;
