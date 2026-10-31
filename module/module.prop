@@ -1,0 +1,6 @@
+id=codm-optimizer
+name=CODM Optimizer
+version=v1.0.0
+versionCode=10000
+author=DinoCore-Dev
+description=Frame-time and thermal optimiser for Call of Duty: Mobile (Global, Garena, VNG, Tencent). Tunes CPU/GPU scheduling, display refresh, network and the Android Game Mode API only while CODM is in front, and reverts everything when it closes. No game files, no memory patching, no cheats.

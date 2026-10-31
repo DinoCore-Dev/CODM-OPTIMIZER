@@ -1,0 +1,14 @@
+# build output
+dist/
+*.zip
+!tests/fixtures/*.zip
+
+# editor / OS noise
+.DS_Store
+*~
+*.swp
+.idea/
+.vscode/
+
+# local test scratch
+test-tmp/

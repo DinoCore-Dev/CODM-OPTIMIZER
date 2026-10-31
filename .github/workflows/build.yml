@@ -1,0 +1,73 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    name: lint + tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install busybox and zip
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq busybox-static zip
+
+      - name: lint
+        run: ./tools/lint.sh
+
+      - name: tests
+        run: ./tools/test.sh
+
+  package:
+    name: build module zip
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install busybox and zip
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq busybox-static zip
+
+      - name: build
+        run: ./build.sh
+
+      - name: inspect zip
+        run: |
+          set -e
+          zip=dist/codm-optimizer-*.zip
+          unzip -l $zip
+          for f in module.prop customize.sh service.sh post-fs-data.sh uninstall.sh action.sh \
+                   system/bin/codm-optimizer common/engine.sh \
+                   META-INF/com/google/android/update-binary; do
+            unzip -l $zip "$f" >/dev/null || { echo "missing $f in zip"; exit 1; }
+          done
+          # the installer must see an executable update-binary and CLI
+          mkdir -p /tmp/x && unzip -q $zip -d /tmp/x
+          test -x /tmp/x/META-INF/com/google/android/update-binary
+          test -x /tmp/x/system/bin/codm-optimizer
+          test -x /tmp/x/service.sh
+          echo "zip looks installable"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: codm-optimizer-module
+          path: |
+            dist/*.zip
+            dist/*.sha256
+
+      - name: release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.zip
+            dist/*.sha256
+          generate_release_notes: true
