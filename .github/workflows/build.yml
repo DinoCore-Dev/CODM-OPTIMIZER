@@ -46,6 +46,7 @@ jobs:
           unzip -l $zip
           for f in module.prop customize.sh service.sh post-fs-data.sh uninstall.sh action.sh \
                    system/bin/codm-optimizer common/engine.sh \
+                   webroot/index.html webroot/style.css webroot/app.js webroot/actions.sh \
                    META-INF/com/google/android/update-binary; do
             unzip -l $zip "$f" >/dev/null || { echo "missing $f in zip"; exit 1; }
           done
@@ -54,6 +55,8 @@ jobs:
           test -x /tmp/x/META-INF/com/google/android/update-binary
           test -x /tmp/x/system/bin/codm-optimizer
           test -x /tmp/x/service.sh
+          # the WebUI bridge is executed by the manager, it must be 0755
+          test -x /tmp/x/webroot/actions.sh
           echo "zip looks installable"
 
       - uses: actions/upload-artifact@v4
